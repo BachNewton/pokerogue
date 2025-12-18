@@ -37,8 +37,8 @@ export enum ControllerState {
  * BattleController manages the RL environment's interaction with the game
  */
 export class BattleController {
-  private config: EnvironmentConfig;
-  private autoPilot: AutoPilot;
+  private readonly config: EnvironmentConfig;
+  private readonly autoPilot: AutoPilot;
   private state: ControllerState = ControllerState.UNINITIALIZED;
   private currentFieldIndex = 0;
   private prevStateSnapshot: BattleStateSnapshot | null = null;

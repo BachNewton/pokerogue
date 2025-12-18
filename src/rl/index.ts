@@ -56,8 +56,28 @@ export {
 } from "./auto-pilot";
 // Controller
 export { BattleController, ControllerState, createBattleController } from "./battle-controller";
+// Browser module (for visual playback)
+export {
+  createModelPlayer,
+  createVisualController,
+  getVisualController,
+  ModelPlayer,
+  VisualController,
+  type VisualControllerConfig,
+} from "./browser";
 // Main environment
 export { createRLEnvironment, RLEnvironment, VectorizedRLEnvironment } from "./environment";
+// Headless training infrastructure
+export {
+  createHeadlessGameManager,
+  createRuntimeOverrides,
+  HeadlessGameManager,
+  type HeadlessGameManagerConfig,
+  type HeadlessMocksConfig,
+  injectHeadlessMocks,
+  RuntimeOverrides,
+  type StarterConfig,
+} from "./headless";
 // Observation utilities
 export {
   computeActionMask,
@@ -74,6 +94,42 @@ export {
   createRewardConfig,
   RewardShaping,
 } from "./reward";
+// Training module
+export {
+  type Checkpoint,
+  CurriculumManager,
+  type CurriculumStage,
+  // Curriculum
+  createCurriculumManager,
+  // Metrics
+  createMetricsLogger,
+  // Model
+  createPPOAgent,
+  // Trainer
+  createTrainer,
+  // Replay Buffer
+  createTrajectoryBuffer,
+  DEFAULT_CURRICULUM,
+  DEFAULT_PPO_CONFIG,
+  DEFAULT_TRAINER_CONFIG,
+  type EpisodeResult,
+  type Experience,
+  encodeActionMask,
+  // Observation Encoder
+  encodeObservation,
+  formatDuration,
+  getActionSpaceSize,
+  getObservationShape,
+  MetricsLogger,
+  OBSERVATION_SIZES,
+  PPOAgent,
+  type PPOConfig,
+  RLTrainer,
+  type StepMetrics,
+  type TrainerConfig,
+  TrajectoryBuffer,
+  train,
+} from "./training";
 // Types
 export type {
   BattleObservation,

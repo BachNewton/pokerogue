@@ -58,7 +58,7 @@ export interface ActionSpace {
  */
 export class RLEnvironment {
   private config: EnvironmentConfig;
-  private controller: BattleController;
+  private readonly controller: BattleController;
   private episodeCount = 0;
   private totalSteps = 0;
   private lastObservation: BattleObservation | null = null;
@@ -253,7 +253,7 @@ export function createRLEnvironment(config: Partial<EnvironmentConfig> = {}): RL
  * (Placeholder for future implementation)
  */
 export class VectorizedRLEnvironment {
-  private envs: RLEnvironment[];
+  private readonly envs: RLEnvironment[];
 
   constructor(numEnvs: number, config: Partial<EnvironmentConfig> = {}) {
     this.envs = [];
