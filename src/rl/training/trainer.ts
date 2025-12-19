@@ -164,83 +164,122 @@ export class RLTrainer {
   }
 
   /**
-   * Reset for a new episode
+   * Reset for a new episode with retry logic
    */
-  private async resetEpisode(): Promise<void> {
-    // Update environment config from curriculum
-    const envConfig = {
-      ...DEFAULT_ENV_CONFIG,
-      ...this.config.envConfig,
-      ...this.curriculum.getConfig(),
-      starters: this.config.starters,
-    };
+  private async resetEpisode(retryCount = 0): Promise<void> {
+    const maxRetries = 3;
 
-    // Start a new battle
-    await this.gameManager!.startBattle({
-      species: this.config.starters,
-      level: envConfig.startingWave === 1 ? 5 : undefined,
-    });
+    try {
+      // Update environment config from curriculum
+      const envConfig = {
+        ...DEFAULT_ENV_CONFIG,
+        ...this.config.envConfig,
+        ...this.curriculum.getConfig(),
+        starters: this.config.starters,
+      };
 
-    // Get initial observation
-    this.lastObs = await this.controller!.reset();
-    this.lastActionMask = this.lastObs.actionMask;
+      // Start a new battle
+      await this.gameManager!.startBattle({
+        species: this.config.starters,
+        level: envConfig.startingWave === 1 ? 5 : undefined,
+      });
 
-    this.episodeReward = 0;
-    this.episodeSteps = 0;
+      // Get initial observation
+      this.lastObs = await this.controller!.reset();
+      this.lastActionMask = this.lastObs.actionMask;
+
+      this.episodeReward = 0;
+      this.episodeSteps = 0;
+    } catch (error) {
+      if (retryCount < maxRetries) {
+        console.warn(`Episode reset failed (attempt ${retryCount + 1}/${maxRetries}):`, error);
+        // Reset game state and try again
+        await this.gameManager!.reset();
+        await this.resetEpisode(retryCount + 1);
+      } else {
+        throw new Error(`Failed to reset episode after ${maxRetries} attempts: ${error}`);
+      }
+    }
   }
 
   /**
-   * Collect a single step of experience
+   * Collect a single step of experience with graceful error handling
    */
   private async collectStep(): Promise<void> {
     if (!this.lastObs || !this.controller) {
       return;
     }
 
-    // Encode observation and select action
-    const obsEncoded = encodeObservation(this.lastObs);
-    const { action, logProb, value } = this.agent.selectAction(obsEncoded, this.lastActionMask);
+    try {
+      // Encode observation and select action
+      const obsEncoded = encodeObservation(this.lastObs);
+      const { action, logProb, value } = this.agent.selectAction(obsEncoded, this.lastActionMask);
 
-    // Take action in environment
-    const result: StepResult = await this.controller.step(action);
+      // Take action in environment
+      const result: StepResult = await this.controller.step(action);
 
-    // Store experience
-    const experience: Experience = {
-      observation: obsEncoded,
-      action,
-      reward: result.reward,
-      nextObservation: encodeObservation(result.observation),
-      done: result.terminated || result.truncated,
-      logProb,
-      value,
-    };
+      // Store experience
+      const experience: Experience = {
+        observation: obsEncoded,
+        action,
+        reward: result.reward,
+        nextObservation: encodeObservation(result.observation),
+        done: result.terminated || result.truncated,
+        logProb,
+        value,
+      };
 
-    this.buffer.add(experience, this.lastActionMask);
+      this.buffer.add(experience, this.lastActionMask);
 
-    // Update tracking
-    this.step++;
-    this.episodeSteps++;
-    this.episodeReward += result.reward;
+      // Update tracking
+      this.step++;
+      this.episodeSteps++;
+      this.episodeReward += result.reward;
 
-    // Check if episode ended
-    if (result.terminated || result.truncated) {
-      // Record episode result
+      // Check if episode ended
+      if (result.terminated || result.truncated) {
+        // Record episode result
+        const episodeResult: EpisodeResult = {
+          won: result.info.battleWon,
+          wavesReached: result.info.waveIndex,
+          totalReward: this.episodeReward,
+          turns: this.episodeSteps,
+        };
+
+        this.curriculum.recordEpisode(episodeResult);
+        this.episode++;
+
+        // Reset for next episode
+        await this.resetEpisode();
+      } else {
+        // Update observation for next step
+        this.lastObs = result.observation;
+        this.lastActionMask = result.observation.actionMask;
+      }
+    } catch (error) {
+      // Log error but don't crash - terminate episode gracefully
+      console.error("[Trainer] Error during step:", error);
+
+      // Record failed episode with penalty
       const episodeResult: EpisodeResult = {
-        won: result.info.battleWon,
-        wavesReached: result.info.waveIndex,
-        totalReward: this.episodeReward,
+        won: false,
+        wavesReached: this.lastObs?.waveIndex ?? 1,
+        totalReward: this.episodeReward - 10, // Penalty for error
         turns: this.episodeSteps,
       };
 
       this.curriculum.recordEpisode(episodeResult);
       this.episode++;
+      this.step++; // Count step to avoid infinite loop
 
-      // Reset for next episode
-      await this.resetEpisode();
-    } else {
-      // Update observation for next step
-      this.lastObs = result.observation;
-      this.lastActionMask = result.observation.actionMask;
+      // Try to reset for next episode
+      try {
+        await this.gameManager!.reset();
+        await this.resetEpisode();
+      } catch (resetError) {
+        console.error("[Trainer] Failed to reset after error:", resetError);
+        throw resetError; // Re-throw if we can't recover
+      }
     }
   }
 

@@ -229,19 +229,20 @@ Customize via `RewardShaping` presets:
 - ESM loader for Vite import transforms (`?raw`, `?url`)
 - TensorFlow.js integration (CPU backend, GPU optional)
 - BattleStyle.SET to skip switch prompts during training
-
-### In Progress
-- Full training loop execution and debugging
-- Action execution within CommandPhase
+- Full training loop execution (actions execute correctly)
+- SelectTargetPhase auto-handling for move target selection
+- Additional phase handlers (SwitchPhase, VictoryPhase, BattleEndPhase, etc.)
+- Episode retry logic and graceful error handling
+- Cross-platform file path handling for checkpoints (Windows compatible)
 
 ### Known Issues
 - `i18next.use()` warning during initialization (non-blocking)
-- TensorFlow.js native binding not available (falls back to pure JS, slower)
+- TensorFlow.js native binding not available (falls back to pure JS, much slower)
 - Many "variant icon does not exist" warnings (cosmetic, doesn't affect training)
 
 ### Next Steps
-1. Debug and fix the `runToNextDecisionPoint` loop if actions aren't executing
-2. Verify training completes 100 steps successfully
-3. Test curriculum stage progression
-4. Add model checkpointing verification
-5. Browser visual playback integration testing
+1. Build TensorFlow.js native addon for faster training (`npm rebuild @tensorflow/tfjs-node --build-addon-from-source`)
+2. Test curriculum stage progression with extended training runs
+3. Add model checkpointing verification
+4. Browser visual playback integration testing
+5. Performance profiling and optimization

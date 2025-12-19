@@ -224,8 +224,10 @@ export class BattleController {
    * Run the game until the next decision point (CommandPhase) or episode end
    */
   private async runToNextDecisionPoint(): Promise<void> {
-    const maxIterations = 10000; // Safety limit
+    const maxIterations = 30000; // Safety limit (increased from 10000)
     let iterations = 0;
+    let lastPhaseName = "";
+    let samePhaseCount = 0;
 
     while (iterations < maxIterations) {
       iterations++;
@@ -246,6 +248,20 @@ export class BattleController {
 
       const phaseName = currentPhase.phaseName;
       const uiMode = globalScene.ui?.getMode() ?? UiMode.MESSAGE;
+
+      // Track same-phase iterations for debugging
+      if (phaseName === lastPhaseName) {
+        samePhaseCount++;
+        // Log warning if stuck on same phase for too long
+        if (samePhaseCount > 5000 && samePhaseCount % 5000 === 0) {
+          console.warn(
+            `[BattleController] Stuck on phase "${phaseName}" with mode ${UiMode[uiMode]} for ${samePhaseCount} iterations`,
+          );
+        }
+      } else {
+        lastPhaseName = phaseName;
+        samePhaseCount = 0;
+      }
 
       // Check if we're at a decision point (CommandPhase with COMMAND UI)
       if (phaseName === "CommandPhase" && uiMode === UiMode.COMMAND) {
@@ -270,6 +286,13 @@ export class BattleController {
         }
       }
 
+      // Handle target selection mode even if not in SelectTargetPhase
+      if (uiMode === UiMode.TARGET_SELECT) {
+        this.autoPilot.handlePhase("SelectTargetPhase", uiMode);
+        await this.waitTick();
+        continue;
+      }
+
       // Handle messages
       if (uiMode === UiMode.MESSAGE) {
         this.autoPilot.handleMessage();
@@ -279,7 +302,9 @@ export class BattleController {
       await this.waitTick();
     }
 
-    throw new Error(`Exceeded maximum iterations (${maxIterations}) waiting for decision point`);
+    throw new Error(
+      `Exceeded maximum iterations (${maxIterations}) waiting for decision point. Last phase: "${lastPhaseName}"`,
+    );
   }
 
   /**

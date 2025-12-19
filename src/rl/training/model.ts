@@ -84,6 +84,7 @@ export class PPOAgent {
   private readonly optimizer: tf.Optimizer;
   private config: PPOConfig;
   private readonly actionSize: number;
+  private readonly observationSize: number;
 
   constructor(config: Partial<PPOConfig> = {}) {
     this.config = { ...DEFAULT_PPO_CONFIG, ...config };
@@ -270,7 +271,10 @@ export class PPOAgent {
     const rewards = experiences.map(e => e.reward);
     const values = experiences.map(e => e.value);
     const dones = experiences.map(e => e.done);
-    const lastValue = dones.at(-1) ? 0 : values.at(-1);
+    // Handle edge case where arrays could be empty or .at(-1) returns undefined
+    const lastDone = dones.at(-1) ?? true;
+    const lastVal = values.at(-1) ?? 0;
+    const lastValue = lastDone ? 0 : lastVal;
 
     const { advantages, returns } = this.computeGAE(rewards, values, dones, lastValue);
 
@@ -406,11 +410,21 @@ export class PPOAgent {
    * Save the model to disk
    */
   async save(path: string): Promise<void> {
-    await this.actor.save(`file://${path}/actor`);
-    await this.critic.save(`file://${path}/critic`);
+    const { pathToFileURL } = await import("node:url");
+    const fs = await import("node:fs");
+
+    // Ensure directories exist
+    fs.mkdirSync(`${path}/actor`, { recursive: true });
+    fs.mkdirSync(`${path}/critic`, { recursive: true });
+
+    // Use pathToFileURL for cross-platform compatibility (Windows drive letters, etc.)
+    const actorUrl = pathToFileURL(`${path}/actor`).href;
+    const criticUrl = pathToFileURL(`${path}/critic`).href;
+
+    await this.actor.save(actorUrl);
+    await this.critic.save(criticUrl);
 
     // Save config
-    const fs = await import("node:fs");
     fs.writeFileSync(`${path}/config.json`, JSON.stringify(this.config, null, 2));
   }
 
@@ -418,8 +432,14 @@ export class PPOAgent {
    * Load the model from disk
    */
   async load(path: string): Promise<void> {
-    this.actor = await tf.loadLayersModel(`file://${path}/actor/model.json`);
-    this.critic = await tf.loadLayersModel(`file://${path}/critic/model.json`);
+    const { pathToFileURL } = await import("node:url");
+
+    // Use pathToFileURL for cross-platform compatibility
+    const actorUrl = pathToFileURL(`${path}/actor/model.json`).href;
+    const criticUrl = pathToFileURL(`${path}/critic/model.json`).href;
+
+    this.actor = await tf.loadLayersModel(actorUrl);
+    this.critic = await tf.loadLayersModel(criticUrl);
 
     // Load config
     const fs = await import("node:fs");

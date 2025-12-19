@@ -88,6 +88,17 @@ export class AutoPilot {
         return this.handleEvolution(mode);
       case "FormChangePhase":
         return this.handleFormChange(mode);
+      case "SelectTargetPhase":
+        return this.handleSelectTarget(mode);
+      // These phases auto-proceed, just acknowledge them
+      case "SwitchPhase":
+      case "SwitchSummonPhase":
+      case "VictoryPhase":
+      case "BattleEndPhase":
+      case "NextEncounterPhase":
+      case "NewBattlePhase":
+      case "PostSummonPhase":
+        return { handled: true };
       default:
         return { handled: false };
     }
@@ -260,6 +271,25 @@ export class AutoPilot {
   }
 
   /**
+   * Handle SelectTargetPhase (target selection for moves)
+   */
+  private handleSelectTarget(mode: UiMode): AutoPilotResult {
+    if (mode !== UiMode.TARGET_SELECT) {
+      return { handled: false };
+    }
+
+    const handler = globalScene.ui.getHandler();
+    if (!handler?.active) {
+      return { handled: false };
+    }
+
+    // Select the first available target (usually enemy Pokemon at index 0)
+    handler.setCursor?.(0);
+    handler.processInput(Button.ACTION);
+    return { handled: true };
+  }
+
+  /**
    * Handle message dismissal
    */
   handleMessage(): AutoPilotResult {
@@ -290,6 +320,15 @@ export class AutoPilot {
       "EvolutionPhase",
       "FormChangePhase",
       "MessagePhase",
+      "SelectTargetPhase",
+      // Auto-proceeding phases
+      "SwitchPhase",
+      "SwitchSummonPhase",
+      "VictoryPhase",
+      "BattleEndPhase",
+      "NextEncounterPhase",
+      "NewBattlePhase",
+      "PostSummonPhase",
     ];
     return handleablePhases.includes(phaseName);
   }
