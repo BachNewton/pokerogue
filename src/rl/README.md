@@ -7,7 +7,9 @@ A complete reinforcement learning infrastructure for training AI agents to play 
 - **Headless Training**: Train models without rendering using TensorFlow.js
 - **PPO Algorithm**: Proximal Policy Optimization with action masking
 - **Curriculum Learning**: Gradual difficulty progression from single battles to full runs
-- **Visual Playback**: Watch trained models play in the browser
+- **Visual Playback**: Watch trained models play in the browser (F10 overlay)
+- **TensorBoard Logging**: Track training metrics (loss, reward, win rate)
+- **Performance Profiling**: Identify bottlenecks with `--profile` flag
 - **Console Metrics**: Real-time training progress logging
 - **Checkpointing**: Save and resume training
 
@@ -56,6 +58,9 @@ Options:
   --no-curriculum                  Disable curriculum learning
   --starters <ids>                 Starter Pokemon species IDs (default: "6,9,3")
   -v, --verbose                    Enable verbose output
+  --tensorboard-dir <path>         TensorBoard log directory (default: "./tensorboard_logs")
+  --no-tensorboard                 Disable TensorBoard logging
+  --profile                        Enable performance profiling
 ```
 
 ## Architecture
@@ -75,10 +80,13 @@ src/rl/
 │   ├── replay-buffer.ts           # Experience storage
 │   ├── curriculum.ts              # Stage progression
 │   ├── metrics.ts                 # Logging utilities
+│   ├── tensorboard.ts             # TensorBoard logging
+│   ├── profiler.ts                # Performance profiling
 │   └── index.ts                   # Exports
 ├── browser/                       # Visual playback
 │   ├── model-player.ts            # Load & run trained model
 │   ├── visual-controller.ts       # Game UI integration
+│   ├── ai-overlay.ts              # Browser UI overlay (F10)
 │   └── index.ts                   # Exports
 ├── types.ts                       # Type definitions
 ├── observation.ts                 # State extraction
@@ -116,7 +124,18 @@ Invalid actions are masked with action masking.
 
 ## Visual Playback (Browser)
 
-After training, load the model in the browser:
+After training, you can watch the AI play in the browser using the normal game UI.
+
+### Using the AI Overlay (Recommended)
+
+Press **F10** during gameplay to toggle the AI playback overlay. The overlay provides:
+- **Load Model**: Load a trained model.json file
+- **Start/Stop AI**: Toggle AI control on/off
+- **Speed Control**: Adjust playback speed (0.25x to 5x)
+
+The AI plays through the normal game interface - you'll see all moves, switches, and animations just like human gameplay.
+
+### Programmatic Control
 
 ```typescript
 import { getVisualController } from "#app/rl/browser";
@@ -132,6 +151,27 @@ controller.setSpeed(1.0); // 1x speed
 // Start auto-play
 await controller.startAutoPlay();
 ```
+
+## TensorBoard Logging
+
+Training metrics are logged to `./tensorboard_logs/` by default. View the logs:
+
+```bash
+# Using a simple JSON viewer (logs are in JSONL format)
+cat tensorboard_logs/run-*/scalars.jsonl
+
+# Or use the built-in chart printer
+node -e "const {readScalarEvents, printScalarChart, groupEventsByTag} = require('./src/rl/training/tensorboard'); const events = readScalarEvents('./tensorboard_logs/run-1234/scalars.jsonl'); const grouped = groupEventsByTag(events); printScalarChart('reward/mean', grouped.get('reward/mean'));"
+```
+
+Tracked metrics:
+- `reward/mean` - Rolling average episode reward
+- `performance/win_rate` - Win rate percentage
+- `performance/avg_waves` - Average waves reached
+- `loss/policy` - Policy gradient loss
+- `loss/value` - Value function loss
+- `loss/entropy` - Entropy bonus
+- `curriculum/stage` - Current curriculum stage index
 
 ## API Usage
 
@@ -173,6 +213,43 @@ while (controller.isAwaitingDecision()) {
   if (result.terminated || result.truncated) break;
 }
 ```
+
+## Performance Profiling
+
+Run training with the `--profile` flag to collect timing statistics:
+
+```bash
+pnpm train --steps 1000 --profile
+```
+
+At the end of training, you'll see a report like:
+
+```
+================================================================================
+PROFILING REPORT
+================================================================================
+
+Total Time: 120.5s
+Steps Profiled: 1000
+Avg Step Time: 120.50ms
+Steps/Second: 8.3
+
+--- Timing Breakdown ---
+Section                      Count   Total(ms)   Avg(ms)       %
+-----------------------------------------------------------------
+env_step                      1000     95000.0     95.00    78.8%
+action_selection              1000     15000.0     15.00    12.4%
+encode_observation            1000      8000.0      8.00     6.6%
+policy_update                    5      2500.0    500.00     2.1%
+
+--- Memory Usage ---
+Heap: 512.3MB / 1024.0MB
+Heap Growth: 50.2MB
+Tensors: 150 (25.5MB)
+================================================================================
+```
+
+This helps identify bottlenecks for optimization.
 
 ## Requirements
 
@@ -238,15 +315,22 @@ Customize via `RewardShaping` presets:
 - Node.js 24+ compatibility (util.isNullOrUndefined polyfill)
 - Action masking with fallback validation to prevent invalid action selection
 - Moveset generation via STARTER_SPECIES_OVERRIDE
+- TensorBoard logging (basic scalars: loss, reward, win rate, curriculum stage)
+- Browser AI playback overlay (load models, start/stop AI, speed control via F10 key)
+- Performance profiling instrumentation (`--profile` CLI flag)
 
 ### Known Issues
 - `i18next.use()` warning during initialization (non-blocking)
 - Many "variant icon does not exist" warnings (cosmetic, doesn't affect training)
-- Some phases (SwitchSummonPhase, NextEncounterPhase) occasionally timeout but training continues
+- **Phase timeouts significantly slow training** - SelectTargetPhase, SwitchPhase, SwitchSummonPhase timeout after 10s each, causing steps to take 10-30s instead of <1s
 
 ### Next Steps
-1. Test curriculum stage progression with extended training runs
-2. Browser visual playback integration testing
-3. Performance profiling and optimization
+
+#### High Priority (Major Training Speed Impact)
+1. **Fix phase timeout issues** - SelectTargetPhase, SwitchPhase, and SwitchSummonPhase need proper auto-handling to avoid 10s timeouts. This is the #1 bottleneck for training speed.
+
+#### Medium Priority
+2. Test curriculum stage progression with extended training runs
+3. Browser visual playback integration testing with trained models
 4. Hyperparameter tuning for better learning
-5. Add TensorBoard logging for training visualization
+5. Performance optimization based on profiling results

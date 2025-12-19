@@ -5,6 +5,7 @@
  */
 
 import type { SpeciesId } from "#enums/species-id";
+import { performance as nodePerformance } from "node:perf_hooks";
 import type { BattleController } from "../battle-controller";
 import { createHeadlessGameManager, type HeadlessGameManager } from "../headless";
 import type { BattleObservation, EnvironmentConfig, StepResult } from "../types";
@@ -13,7 +14,16 @@ import { type CurriculumManager, createCurriculumManager, type EpisodeResult } f
 import { createMetricsLogger, type MetricsLogger, type StepMetrics } from "./metrics";
 import { createPPOAgent, type Experience, type PPOAgent, type PPOConfig } from "./model";
 import { encodeObservation } from "./observation-encoder";
+import { createProfiler, type TrainingProfiler } from "./profiler";
 import { createTrajectoryBuffer, type TrajectoryBuffer } from "./replay-buffer";
+
+/**
+ * TensorBoard configuration
+ */
+export interface TensorBoardOptions {
+  enabled: boolean;
+  logDir: string;
+}
 
 /**
  * Training configuration
@@ -39,6 +49,10 @@ export interface TrainerConfig {
   useCurriculum: boolean;
   /** Log interval (steps) */
   logInterval: number;
+  /** TensorBoard logging options */
+  tensorboard?: Partial<TensorBoardOptions>;
+  /** Enable performance profiling */
+  profile?: boolean;
 }
 
 /**
@@ -76,6 +90,7 @@ export class RLTrainer {
   private readonly curriculum: CurriculumManager;
   private readonly metrics: MetricsLogger;
   private readonly buffer: TrajectoryBuffer;
+  private readonly profiler: TrainingProfiler;
   private gameManager: HeadlessGameManager | null = null;
   private controller: BattleController | null = null;
 
@@ -92,8 +107,17 @@ export class RLTrainer {
     // Initialize components
     this.agent = createPPOAgent(this.config.ppoConfig);
     this.curriculum = createCurriculumManager();
-    this.metrics = createMetricsLogger({ logInterval: this.config.logInterval });
+    this.metrics = createMetricsLogger({
+      logInterval: this.config.logInterval,
+      tensorboard: this.config.tensorboard,
+    });
     this.buffer = createTrajectoryBuffer();
+    this.profiler = createProfiler();
+
+    // Enable profiler if configured
+    if (this.config.profile) {
+      this.profiler.enable();
+    }
   }
 
   /**
@@ -157,6 +181,11 @@ export class RLTrainer {
 
       const finalMetrics = this.getCurrentMetrics();
       this.metrics.logComplete(finalMetrics);
+
+      // Print profiling report if enabled
+      if (this.profiler.isEnabled()) {
+        this.profiler.printReport();
+      }
     } catch (error) {
       this.metrics.logError("Training failed", error as Error);
       throw error;
@@ -210,13 +239,22 @@ export class RLTrainer {
       return;
     }
 
+    const stepStart = nodePerformance.now();
+
     try {
       // Encode observation and select action
+      const encodeEnd = this.profiler.startTimer("encode_observation");
       const obsEncoded = encodeObservation(this.lastObs);
+      encodeEnd();
+
+      const actionEnd = this.profiler.startTimer("action_selection");
       const { action, logProb, value } = this.agent.selectAction(obsEncoded, this.lastActionMask);
+      actionEnd();
 
       // Take action in environment
+      const envStepEnd = this.profiler.startTimer("env_step");
       const result: StepResult = await this.controller.step(action);
+      envStepEnd();
 
       // Store experience
       const experience: Experience = {
@@ -236,6 +274,14 @@ export class RLTrainer {
       this.episodeSteps++;
       this.episodeReward += result.reward;
 
+      // Record step time for profiling
+      this.profiler.recordStepTime(nodePerformance.now() - stepStart);
+
+      // Record memory periodically
+      if (this.step % 1000 === 0) {
+        await this.profiler.recordMemory(this.step);
+      }
+
       // Check if episode ended
       if (result.terminated || result.truncated) {
         // Record episode result
@@ -248,6 +294,9 @@ export class RLTrainer {
 
         this.curriculum.recordEpisode(episodeResult);
         this.episode++;
+
+        // Update metrics with curriculum stage index
+        this.metrics.setStageIndex(this.curriculum.getCurrentStageIndex());
 
         // Reset for next episode
         await this.resetEpisode();
@@ -294,7 +343,9 @@ export class RLTrainer {
     }
 
     // Perform PPO update
+    const updateEnd = this.profiler.startTimer("policy_update");
     const losses = await this.agent.update(experiences, actionMasks);
+    updateEnd();
 
     // Clear buffer after update
     this.buffer.clear();

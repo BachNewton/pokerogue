@@ -1,8 +1,11 @@
 /**
  * Training Metrics and Logging
  *
- * Provides console logging and metrics tracking for training progress.
+ * Provides console logging, metrics tracking, and TensorBoard integration
+ * for training progress visualization.
  */
+
+import { createTensorBoardWriter, type TensorBoardConfig, type TensorBoardWriter } from "./tensorboard";
 
 /**
  * Metrics data for a single training step
@@ -40,6 +43,8 @@ export interface MetricsConfig {
   rollingWindow: number;
   /** Enable verbose logging */
   verbose: boolean;
+  /** TensorBoard configuration */
+  tensorboard?: Partial<TensorBoardConfig>;
 }
 
 /**
@@ -60,21 +65,31 @@ export class MetricsLogger {
   private startTime: number;
   private lastLogTime: number;
   private lastLogStep: number;
+  private tensorboard: TensorBoardWriter | null = null;
+  private currentStageIndex = 0;
 
   constructor(config: Partial<MetricsConfig> = {}) {
     this.config = { ...DEFAULT_METRICS_CONFIG, ...config };
     this.startTime = Date.now();
     this.lastLogTime = this.startTime;
     this.lastLogStep = 0;
+
+    // Initialize TensorBoard if configured
+    if (this.config.tensorboard?.enabled !== false) {
+      this.tensorboard = createTensorBoardWriter(this.config.tensorboard);
+    }
   }
 
   /**
-   * Log metrics to console
+   * Log metrics to console and TensorBoard
    */
   log(metrics: StepMetrics): void {
     this.history.push(metrics);
 
-    // Only log at intervals
+    // Write to TensorBoard on every step (buffered internally)
+    this.writeTensorBoardScalars(metrics);
+
+    // Only log to console at intervals
     if (metrics.step % this.config.logInterval !== 0) {
       return;
     }
@@ -111,6 +126,47 @@ export class MetricsLogger {
     }
 
     console.log(parts.join(" | "));
+  }
+
+  /**
+   * Write scalar metrics to TensorBoard
+   */
+  private writeTensorBoardScalars(metrics: StepMetrics): void {
+    if (!this.tensorboard) {
+      return;
+    }
+
+    const step = metrics.step;
+
+    // Performance metrics
+    this.tensorboard.addScalar("reward/mean", metrics.avgReward, step);
+    this.tensorboard.addScalar("performance/win_rate", metrics.winRate, step);
+    this.tensorboard.addScalar("performance/avg_waves", metrics.avgWaves, step);
+    this.tensorboard.addScalar("performance/episodes", metrics.episode, step);
+
+    // Loss metrics (if available)
+    if (metrics.policyLoss !== undefined) {
+      this.tensorboard.addScalar("loss/policy", metrics.policyLoss, step);
+    }
+    if (metrics.valueLoss !== undefined) {
+      this.tensorboard.addScalar("loss/value", metrics.valueLoss, step);
+    }
+    if (metrics.entropy !== undefined) {
+      this.tensorboard.addScalar("loss/entropy", metrics.entropy, step);
+    }
+    if (metrics.stepsPerSecond !== undefined) {
+      this.tensorboard.addScalar("performance/steps_per_second", metrics.stepsPerSecond, step);
+    }
+
+    // Curriculum stage (as numeric index for graphing)
+    this.tensorboard.addScalar("curriculum/stage", this.currentStageIndex, step);
+  }
+
+  /**
+   * Update curriculum stage index for TensorBoard
+   */
+  setStageIndex(index: number): void {
+    this.currentStageIndex = index;
   }
 
   /**
@@ -152,6 +208,9 @@ export class MetricsLogger {
    * Log training completion
    */
   logComplete(finalMetrics: StepMetrics): void {
+    // Close TensorBoard writer
+    this.closeTensorBoard();
+
     const elapsed = (Date.now() - this.startTime) / 1000;
     const hours = Math.floor(elapsed / 3600);
     const minutes = Math.floor((elapsed % 3600) / 60);
@@ -167,7 +226,24 @@ export class MetricsLogger {
     console.log(`Final Win Rate: ${(finalMetrics.winRate * 100).toFixed(1)}%`);
     console.log(`Final Avg Reward: ${finalMetrics.avgReward.toFixed(2)}`);
     console.log(`Final Avg Waves: ${finalMetrics.avgWaves.toFixed(1)}`);
+    if (this.tensorboard) {
+      console.log(`TensorBoard Logs: ${this.tensorboard.getRunDir()}`);
+    }
     console.log("=".repeat(80) + "\n");
+  }
+
+  /**
+   * Flush TensorBoard buffer to disk
+   */
+  flushTensorBoard(): void {
+    this.tensorboard?.flush();
+  }
+
+  /**
+   * Close TensorBoard writer
+   */
+  closeTensorBoard(): void {
+    this.tensorboard?.close();
   }
 
   /**

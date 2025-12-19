@@ -1,5 +1,18 @@
 {
   "permissions": {
-    "allow": ["Bash(node --version:*)", "Bash(npm test:*)"]
+    "allow": [
+      "Bash(node:*)",
+      "Bash(pnpm:*)",
+      "Bash(npm:*)",
+      "Bash(timeout:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(wc:*)",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(npx biome:*)",
+      "Bash(npx tsc:*)"
+    ]
   }
 }

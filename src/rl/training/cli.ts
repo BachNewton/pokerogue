@@ -34,7 +34,10 @@ program
   .option("--log-interval <number>", "Steps between log outputs", "100")
   .option("--no-curriculum", "Disable curriculum learning")
   .option("--starters <ids>", "Starter Pokemon species IDs (comma-separated)", "6,9,3")
-  .option("-v, --verbose", "Enable verbose output");
+  .option("-v, --verbose", "Enable verbose output")
+  .option("--tensorboard-dir <path>", "TensorBoard log directory", "./tensorboard_logs")
+  .option("--no-tensorboard", "Disable TensorBoard logging")
+  .option("--profile", "Enable performance profiling");
 
 export async function main() {
   program.parse();
@@ -91,6 +94,11 @@ export async function main() {
       epochs: Number.parseInt(opts.epochs, 10),
       batchSize: Number.parseInt(opts.batchSize, 10),
     },
+    tensorboard: {
+      enabled: opts.tensorboard !== false,
+      logDir: opts.tensorboardDir,
+    },
+    profile: opts.profile ?? false,
   };
 
   if (opts.verbose) {

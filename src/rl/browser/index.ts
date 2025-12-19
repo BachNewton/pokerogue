@@ -5,6 +5,12 @@
  */
 
 // biome-ignore lint/performance/noBarrelFile: Intentional re-export module
+export {
+  type AIOverlayConfig,
+  AIPlaybackOverlay,
+  createAIOverlay,
+  getAIOverlay,
+} from "./ai-overlay";
 export { createModelPlayer, ModelPlayer } from "./model-player";
 export {
   createVisualController,

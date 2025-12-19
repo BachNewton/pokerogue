@@ -53,3 +53,7 @@ coverage
 
 # Script outputs
 ./*.csv
+
+# RL training outputs
+/tensorboard-logs
+/checkpoints
