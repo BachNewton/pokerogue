@@ -6,6 +6,7 @@
  */
 
 import Overrides, { type OverridesType } from "#app/overrides";
+import { SpeciesId } from "#enums/species-id";
 
 type OverridesKeys = keyof InstanceType<OverridesType>;
 
@@ -111,6 +112,10 @@ export class RuntimeOverrides {
 
       // Disable mystery encounters for simpler training
       MYSTERY_ENCOUNTER_RATE_OVERRIDE: null,
+
+      // Set a starter species override to trigger moveset generation in PlayerPokemon constructor
+      // Without this, Pokemon are created with empty movesets in non-daily mode
+      STARTER_SPECIES_OVERRIDE: SpeciesId.CHARIZARD,
     });
   }
 

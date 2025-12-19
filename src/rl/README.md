@@ -227,22 +227,26 @@ Customize via `RewardShaping` presets:
 - Training infrastructure (model, trainer, observation-encoder, curriculum, metrics, cli)
 - Environment setup with browser globals (JSDOM, Phaser mocks, rex-plugins mocks)
 - ESM loader for Vite import transforms (`?raw`, `?url`)
-- TensorFlow.js integration (CPU backend, GPU optional)
+- TensorFlow.js integration with native addon (CPU backend working, GPU optional)
 - BattleStyle.SET to skip switch prompts during training
 - Full training loop execution (actions execute correctly)
 - SelectTargetPhase auto-handling for move target selection
 - Additional phase handlers (SwitchPhase, VictoryPhase, BattleEndPhase, etc.)
 - Episode retry logic and graceful error handling
 - Cross-platform file path handling for checkpoints (Windows compatible)
+- PhaseInterceptor integration for proper phase execution in headless mode
+- Node.js 24+ compatibility (util.isNullOrUndefined polyfill)
+- Action masking with fallback validation to prevent invalid action selection
+- Moveset generation via STARTER_SPECIES_OVERRIDE
 
 ### Known Issues
 - `i18next.use()` warning during initialization (non-blocking)
-- TensorFlow.js native binding not available (falls back to pure JS, much slower)
 - Many "variant icon does not exist" warnings (cosmetic, doesn't affect training)
+- Some phases (SwitchSummonPhase, NextEncounterPhase) occasionally timeout but training continues
 
 ### Next Steps
-1. Build TensorFlow.js native addon for faster training (`npm rebuild @tensorflow/tfjs-node --build-addon-from-source`)
-2. Test curriculum stage progression with extended training runs
-3. Add model checkpointing verification
-4. Browser visual playback integration testing
-5. Performance profiling and optimization
+1. Test curriculum stage progression with extended training runs
+2. Browser visual playback integration testing
+3. Performance profiling and optimization
+4. Hyperparameter tuning for better learning
+5. Add TensorBoard logging for training visualization

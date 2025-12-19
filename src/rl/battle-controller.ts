@@ -8,6 +8,7 @@ import { Command } from "#enums/command";
 import { MoveUseMode } from "#enums/move-use-mode";
 import { UiMode } from "#enums/ui-mode";
 import type { CommandPhase } from "#phases/command-phase";
+import type { PhaseInterceptor } from "#test/test-utils/phase-interceptor";
 import { translateAction } from "./action";
 import { type AutoPilot, createAutoPilot } from "./auto-pilot";
 import { extractBattleObservation, isEnemyDefeated, isPlayerDefeated, takeBattleStateSnapshot } from "./observation";
@@ -39,6 +40,7 @@ export enum ControllerState {
 export class BattleController {
   private readonly config: EnvironmentConfig;
   private readonly autoPilot: AutoPilot;
+  private phaseInterceptor: PhaseInterceptor | null = null;
   private state: ControllerState = ControllerState.UNINITIALIZED;
   private currentFieldIndex = 0;
   private prevStateSnapshot: BattleStateSnapshot | null = null;
@@ -51,6 +53,13 @@ export class BattleController {
       modifierStrategy: this.config.modifierStrategy,
       biomeStrategy: this.config.biomeStrategy,
     });
+  }
+
+  /**
+   * Set the phase interceptor for running phases
+   */
+  setPhaseInterceptor(interceptor: PhaseInterceptor): void {
+    this.phaseInterceptor = interceptor;
   }
 
   /**
@@ -157,6 +166,7 @@ export class BattleController {
     } catch (error) {
       this.state = ControllerState.ERROR;
       this.errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("[BattleController] Step error:", this.errorMessage);
 
       return {
         observation: this.getObservation(),
@@ -224,7 +234,7 @@ export class BattleController {
    * Run the game until the next decision point (CommandPhase) or episode end
    */
   private async runToNextDecisionPoint(): Promise<void> {
-    const maxIterations = 30000; // Safety limit (increased from 10000)
+    const maxIterations = 30000; // Safety limit
     let iterations = 0;
     let lastPhaseName = "";
     let samePhaseCount = 0;
@@ -254,8 +264,9 @@ export class BattleController {
         samePhaseCount++;
         // Log warning if stuck on same phase for too long
         if (samePhaseCount > 5000 && samePhaseCount % 5000 === 0) {
+          const onHoldCount = this.phaseInterceptor ? ((this.phaseInterceptor as any).onHold?.length ?? 0) : -1;
           console.warn(
-            `[BattleController] Stuck on phase "${phaseName}" with mode ${UiMode[uiMode]} for ${samePhaseCount} iterations`,
+            `[BattleController] Stuck on phase "${phaseName}" with mode ${UiMode[uiMode]} for ${samePhaseCount} iterations (onHold: ${onHoldCount})`,
           );
         }
       } else {
@@ -281,7 +292,7 @@ export class BattleController {
       if (this.autoPilot.canHandlePhase(phaseName)) {
         const result = this.autoPilot.handlePhase(phaseName, uiMode);
         if (result.handled) {
-          await this.waitTick();
+          await this.runNextPhase();
           continue;
         }
       }
@@ -289,7 +300,7 @@ export class BattleController {
       // Handle target selection mode even if not in SelectTargetPhase
       if (uiMode === UiMode.TARGET_SELECT) {
         this.autoPilot.handlePhase("SelectTargetPhase", uiMode);
-        await this.waitTick();
+        await this.runNextPhase();
         continue;
       }
 
@@ -298,8 +309,8 @@ export class BattleController {
         this.autoPilot.handleMessage();
       }
 
-      // Advance the phase manager
-      await this.waitTick();
+      // Run the next phase using the phase interceptor
+      await this.runNextPhase();
     }
 
     throw new Error(
@@ -312,6 +323,61 @@ export class BattleController {
    */
   private async waitTick(): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, 1));
+  }
+
+  /**
+   * Run the next phase using the PhaseInterceptor
+   * This is the key method that actually executes queued phases
+   */
+  private async runNextPhase(): Promise<void> {
+    if (!this.phaseInterceptor) {
+      // Fallback to simple tick if no interceptor
+      await this.waitTick();
+      return;
+    }
+
+    // Check if there are phases waiting to be run
+    const onHold = (this.phaseInterceptor as any).onHold as Array<{ name: string; call: () => void }>;
+    if (onHold && onHold.length > 0) {
+      // Run the next phase from the queue and wait for it to complete
+      await this.executePhaseFromQueue(onHold);
+    } else {
+      // No phases queued, just wait a tick
+      await this.waitTick();
+    }
+  }
+
+  /**
+   * Execute a phase from the queue and wait for completion
+   */
+  private async executePhaseFromQueue(onHold: Array<{ name: string; call: () => void }>): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const currentPhase = onHold.shift()!;
+      const timeoutId = setTimeout(() => {
+        // Timeout after 10 seconds - force resolve and clear inProgress
+        console.warn(`[BattleController] Phase "${currentPhase.name}" timed out after 10s`);
+        (this.phaseInterceptor as any).inProgress = undefined;
+        resolve();
+      }, 10000);
+
+      const inProgress = {
+        name: currentPhase.name,
+        callback: () => {
+          clearTimeout(timeoutId);
+          (this.phaseInterceptor as any).inProgress = undefined;
+          resolve();
+        },
+        onError: (error: Error) => {
+          clearTimeout(timeoutId);
+          (this.phaseInterceptor as any).inProgress = undefined;
+          reject(error);
+        },
+      };
+      (this.phaseInterceptor as any).inProgress = inProgress;
+
+      // Execute the phase - this will eventually call phase.end() which triggers callback
+      currentPhase.call();
+    });
   }
 
   /**

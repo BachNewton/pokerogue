@@ -6,7 +6,7 @@
 
 // biome-ignore lint/performance/noNamespaceImport: TensorFlow.js requires namespace import
 import * as tf from "@tensorflow/tfjs";
-import { getActionSpaceSize, getObservationShape, OBSERVATION_SIZES } from "./observation-encoder";
+import { getActionSpaceSize, getObservationShape } from "./observation-encoder";
 
 /**
  * Configuration for the PPO agent
@@ -84,11 +84,9 @@ export class PPOAgent {
   private readonly optimizer: tf.Optimizer;
   private config: PPOConfig;
   private readonly actionSize: number;
-  private readonly observationSize: number;
 
   constructor(config: Partial<PPOConfig> = {}) {
     this.config = { ...DEFAULT_PPO_CONFIG, ...config };
-    this.observationSize = OBSERVATION_SIZES.TOTAL_SIZE;
     this.actionSize = getActionSpaceSize();
 
     this.actor = this.buildActor();
@@ -178,14 +176,22 @@ export class PPOAgent {
     return tf.tidy(() => {
       const obsTensor = tf.tensor2d([Array.from(observation)]);
 
-      // Get logits and apply mask
+      // Get logits and apply mask (use -1e8 to avoid numerical issues with -1e9)
       const logits = this.getLogits(obsTensor);
-      const maskTensor = tf.tensor1d(actionMask.map(v => (v ? 0 : -1e9)));
+      const maskTensor = tf.tensor1d(actionMask.map(v => (v ? 0 : -1e8)));
       const maskedLogits = logits.add(maskTensor.expandDims(0));
 
       // Sample from categorical distribution
       const probs = tf.softmax(maskedLogits);
-      const action = tf.multinomial(probs as tf.Tensor2D, 1).dataSync()[0];
+      let action = tf.multinomial(probs as tf.Tensor2D, 1).dataSync()[0];
+
+      // Double-check that selected action is valid; if not, select a random valid action
+      if (!actionMask[action]) {
+        const validActions = actionMask.map((v, i) => (v ? i : -1)).filter(i => i !== -1);
+        if (validActions.length > 0) {
+          action = validActions[Math.floor(Math.random() * validActions.length)];
+        }
+      }
 
       // Compute log probability
       const logProbs = tf.logSoftmax(maskedLogits);
@@ -409,42 +415,51 @@ export class PPOAgent {
   /**
    * Save the model to disk
    */
-  async save(path: string): Promise<void> {
-    const { pathToFileURL } = await import("node:url");
+  async save(savePath: string): Promise<void> {
     const fs = await import("node:fs");
+    const nodePath = await import("node:path");
+
+    // Resolve to absolute path and normalize for cross-platform
+    const absolutePath = nodePath.resolve(savePath);
 
     // Ensure directories exist
-    fs.mkdirSync(`${path}/actor`, { recursive: true });
-    fs.mkdirSync(`${path}/critic`, { recursive: true });
+    const actorPath = nodePath.join(absolutePath, "actor");
+    const criticPath = nodePath.join(absolutePath, "critic");
 
-    // Use pathToFileURL for cross-platform compatibility (Windows drive letters, etc.)
-    const actorUrl = pathToFileURL(`${path}/actor`).href;
-    const criticUrl = pathToFileURL(`${path}/critic`).href;
+    fs.mkdirSync(actorPath, { recursive: true });
+    fs.mkdirSync(criticPath, { recursive: true });
 
-    await this.actor.save(actorUrl);
-    await this.critic.save(criticUrl);
+    // Import tf.node for file system handler
+    const tfNode = await import("@tensorflow/tfjs-node");
+    await this.actor.save(tfNode.io.fileSystem(actorPath));
+    await this.critic.save(tfNode.io.fileSystem(criticPath));
 
     // Save config
-    fs.writeFileSync(`${path}/config.json`, JSON.stringify(this.config, null, 2));
+    fs.writeFileSync(nodePath.join(absolutePath, "config.json"), JSON.stringify(this.config, null, 2));
   }
 
   /**
    * Load the model from disk
    */
-  async load(path: string): Promise<void> {
-    const { pathToFileURL } = await import("node:url");
+  async load(loadPath: string): Promise<void> {
+    const nodePath = await import("node:path");
 
-    // Use pathToFileURL for cross-platform compatibility
-    const actorUrl = pathToFileURL(`${path}/actor/model.json`).href;
-    const criticUrl = pathToFileURL(`${path}/critic/model.json`).href;
+    // Resolve to absolute path and normalize for cross-platform
+    const absolutePath = nodePath.resolve(loadPath);
 
-    this.actor = await tf.loadLayersModel(actorUrl);
-    this.critic = await tf.loadLayersModel(criticUrl);
+    // For TensorFlow.js in Node.js, use the IOHandler for file system
+    const tfNode = await import("@tensorflow/tfjs-node");
+    const actorPath = nodePath.join(absolutePath, "actor", "model.json");
+    const criticPath = nodePath.join(absolutePath, "critic", "model.json");
+
+    this.actor = await tf.loadLayersModel(tfNode.io.fileSystem(actorPath));
+    this.critic = await tf.loadLayersModel(tfNode.io.fileSystem(criticPath));
 
     // Load config
     const fs = await import("node:fs");
-    if (fs.existsSync(`${path}/config.json`)) {
-      const configJson = fs.readFileSync(`${path}/config.json`, "utf-8");
+    const configPath = nodePath.join(absolutePath, "config.json");
+    if (fs.existsSync(configPath)) {
+      const configJson = fs.readFileSync(configPath, "utf-8");
       this.config = { ...DEFAULT_PPO_CONFIG, ...JSON.parse(configJson) };
     }
   }

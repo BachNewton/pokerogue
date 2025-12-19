@@ -234,6 +234,8 @@ export class HeadlessGameManager {
    */
   createBattleController(config: Partial<EnvironmentConfig> = {}): BattleController {
     this.battleController = createBattleController(config);
+    // Pass the phase interceptor to the battle controller so it can run phases
+    this.battleController.setPhaseInterceptor(this.phaseInterceptor);
     return this.battleController;
   }
 

@@ -10,7 +10,14 @@
  */
 
 import { createRequire } from "node:module";
+import util from "node:util";
 import { JSDOM } from "jsdom";
+
+// Polyfill util.isNullOrUndefined for Node.js 24+ (removed in newer versions)
+// This is required for TensorFlow.js native backend compatibility
+if (!util.isNullOrUndefined) {
+  util.isNullOrUndefined = value => value === null || value === undefined;
+}
 
 // Set up CommonJS module storage for ESM interop
 // This is needed because the ESM loader can't easily pass modules to generated code
