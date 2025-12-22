@@ -20,12 +20,12 @@ export type BiomeStrategy = "first" | "random";
 
 /**
  * Auto-pilot configuration
+ * NOTE: CheckSwitchPhase, SwitchPhase, and SelectTargetPhase are now
+ * RL decision points and are handled by the agent, not auto-pilot.
  */
 export interface AutoPilotConfig {
   modifierStrategy: ModifierStrategy;
   biomeStrategy: BiomeStrategy;
-  /** Whether to auto-decline switch prompts */
-  autoDeclineSwitch: boolean;
   /** Whether to auto-skip learn move prompts */
   autoSkipLearnMove: boolean;
   /** Whether to let evolutions proceed automatically */
@@ -38,7 +38,6 @@ export interface AutoPilotConfig {
 export const DEFAULT_AUTO_PILOT_CONFIG: AutoPilotConfig = {
   modifierStrategy: "skip",
   biomeStrategy: "first",
-  autoDeclineSwitch: true,
   autoSkipLearnMove: true,
   autoEvolution: true,
 };
@@ -70,6 +69,8 @@ export class AutoPilot {
 
   /**
    * Handle the current phase if it's a non-battle phase
+   * NOTE: CheckSwitchPhase, SwitchPhase, and SelectTargetPhase are now
+   * RL decision points and are NOT handled by auto-pilot.
    * @param phaseName - Name of the current phase
    * @param mode - Current UI mode
    * @returns Whether the phase was handled
@@ -80,18 +81,13 @@ export class AutoPilot {
         return this.handleSelectModifier(mode);
       case "SelectBiomePhase":
         return this.handleSelectBiome(mode);
-      case "CheckSwitchPhase":
-        return this.handleCheckSwitch(mode);
       case "LearnMovePhase":
         return this.handleLearnMove(mode);
       case "EvolutionPhase":
         return this.handleEvolution(mode);
       case "FormChangePhase":
         return this.handleFormChange(mode);
-      case "SelectTargetPhase":
-        return this.handleSelectTarget(mode);
       // These phases auto-proceed, just acknowledge them
-      case "SwitchPhase":
       case "SwitchSummonPhase":
       case "VictoryPhase":
       case "BattleEndPhase":
@@ -189,28 +185,6 @@ export class AutoPilot {
   }
 
   /**
-   * Handle CheckSwitchPhase (switch prompt after KO)
-   */
-  private handleCheckSwitch(mode: UiMode): AutoPilotResult {
-    if (mode !== UiMode.CONFIRM) {
-      return { handled: false };
-    }
-
-    if (!this.config.autoDeclineSwitch) {
-      return { handled: false };
-    }
-
-    const handler = globalScene.ui.getHandler();
-    if (!handler?.active) {
-      return { handled: false };
-    }
-
-    // Decline the switch prompt
-    handler.processInput(Button.CANCEL);
-    return { handled: true };
-  }
-
-  /**
    * Handle LearnMovePhase (new move learning prompt)
    */
   private handleLearnMove(mode: UiMode): AutoPilotResult {
@@ -271,25 +245,6 @@ export class AutoPilot {
   }
 
   /**
-   * Handle SelectTargetPhase (target selection for moves)
-   */
-  private handleSelectTarget(mode: UiMode): AutoPilotResult {
-    if (mode !== UiMode.TARGET_SELECT) {
-      return { handled: false };
-    }
-
-    const handler = globalScene.ui.getHandler();
-    if (!handler?.active) {
-      return { handled: false };
-    }
-
-    // Select the first available target (usually enemy Pokemon at index 0)
-    handler.setCursor?.(0);
-    handler.processInput(Button.ACTION);
-    return { handled: true };
-  }
-
-  /**
    * Handle message dismissal
    */
   handleMessage(): AutoPilotResult {
@@ -310,19 +265,17 @@ export class AutoPilot {
 
   /**
    * Check if the current phase is one that auto-pilot can handle
+   * NOTE: CheckSwitchPhase, SwitchPhase, and SelectTargetPhase are RL decision points
    */
   canHandlePhase(phaseName: string): boolean {
     const handleablePhases = [
       "SelectModifierPhase",
       "SelectBiomePhase",
-      "CheckSwitchPhase",
       "LearnMovePhase",
       "EvolutionPhase",
       "FormChangePhase",
       "MessagePhase",
-      "SelectTargetPhase",
       // Auto-proceeding phases
-      "SwitchPhase",
       "SwitchSummonPhase",
       "VictoryPhase",
       "BattleEndPhase",

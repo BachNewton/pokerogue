@@ -5,7 +5,7 @@
  */
 
 import type { BattleObservation, MoveObservation, PokemonObservation } from "../types";
-import { ACTION_SPACE_SIZE } from "../types";
+import { ACTION_SPACE_SIZE, DecisionType } from "../types";
 
 /**
  * Size constants for the observation encoding
@@ -19,10 +19,10 @@ export const OBSERVATION_SIZES = {
   POKEMON_FEATURES: 23 + 8 * 4, // 55
   /** Number of Pokemon slots per side */
   MAX_POKEMON_PER_SIDE: 6,
-  /** Battle state features */
-  BATTLE_FEATURES: 8,
+  /** Battle state features (includes decision type) */
+  BATTLE_FEATURES: 12,
   /** Total observation size */
-  TOTAL_SIZE: 55 * 12 + 8, // 6 player + 6 enemy pokemon + battle state = 668
+  TOTAL_SIZE: 55 * 12 + 12, // 6 player + 6 enemy pokemon + battle state = 672
 };
 
 /**
@@ -108,6 +108,18 @@ export function encodePokemon(pokemon: PokemonObservation | null): number[] {
 }
 
 /**
+ * Encode decision type as one-hot
+ */
+function encodeDecisionType(decisionType: DecisionType): number[] {
+  return [
+    decisionType === DecisionType.COMMAND ? 1 : 0,
+    decisionType === DecisionType.CHECK_SWITCH ? 1 : 0,
+    decisionType === DecisionType.SWITCH ? 1 : 0,
+    decisionType === DecisionType.TARGET ? 1 : 0,
+  ];
+}
+
+/**
  * Encode battle state features
  */
 export function encodeBattleState(obs: BattleObservation): number[] {
@@ -118,8 +130,10 @@ export function encodeBattleState(obs: BattleObservation): number[] {
     obs.waveIndex / 200, // Normalize wave (max 200)
     obs.isDoubleBattle ? 1 : 0,
     obs.activeFieldIndex, // 0 or 1
-    // Pad to expected size
-    0,
+    obs.switchingFieldIndex ?? 0, // Field index being switched
+    // Decision type one-hot (4 values)
+    ...encodeDecisionType(obs.decisionType ?? DecisionType.COMMAND),
+    // Pad to BATTLE_FEATURES size
     0,
   ];
 }
@@ -190,11 +204,39 @@ export function getActionSpaceSize(): number {
  * Decode an action index to a human-readable description
  */
 export function describeAction(action: number): string {
+  // COMMAND actions (0-12)
   if (action < 4) {
-    return `Use Move ${action}`;
+    return `Move${action}`;
   }
   if (action < 9) {
-    return `Switch to Pokemon ${action - 3}`;
+    return `Switch${action - 3}`;
   }
-  return `Terastallize + Use Move ${action - 9}`;
+  if (action < 13) {
+    return `Tera+Move${action - 9}`;
+  }
+  // SWITCH slot actions (13-18)
+  if (action < 19) {
+    return `Slot${action - 13}`;
+  }
+  // TARGET actions (19-22)
+  if (action === 19) {
+    return "TgtP1";
+  }
+  if (action === 20) {
+    return "TgtP2";
+  }
+  if (action === 21) {
+    return "TgtE1";
+  }
+  if (action === 22) {
+    return "TgtE2";
+  }
+  // CHECK_SWITCH actions (23-24)
+  if (action === 23) {
+    return "DeclineSwitch";
+  }
+  if (action === 24) {
+    return "AcceptSwitch";
+  }
+  return `Unknown${action}`;
 }

@@ -12,7 +12,7 @@ import { StatusEffect } from "#enums/status-effect";
 import { WeatherType } from "#enums/weather-type";
 import type { Pokemon } from "#field/pokemon";
 import type { BattleObservation, BattleStateSnapshot, MoveObservation, PokemonObservation } from "./types";
-import { ACTION_SPACE_SIZE, ActionType } from "./types";
+import { ACTION_SPACE_SIZE, ActionType, DecisionType } from "./types";
 
 /**
  * Extract observation for a single Pokemon
@@ -162,9 +162,21 @@ function canPokemonTera(pokemon: Pokemon): boolean {
 }
 
 /**
+ * Options for extracting battle observation
+ */
+export interface ObservationOptions {
+  fieldIndex?: number;
+  decisionType?: DecisionType;
+  switchingFieldIndex?: number;
+  validTargets?: number[];
+}
+
+/**
  * Extract the full battle observation from the current game state
  */
-export function extractBattleObservation(fieldIndex = 0): BattleObservation {
+export function extractBattleObservation(options: ObservationOptions = {}): BattleObservation {
+  const { fieldIndex = 0, decisionType = DecisionType.COMMAND, switchingFieldIndex, validTargets } = options;
+
   const playerField = globalScene.getPlayerField();
   const enemyField = globalScene.getEnemyField();
   const playerParty = globalScene.getPlayerParty();
@@ -213,8 +225,19 @@ export function extractBattleObservation(fieldIndex = 0): BattleObservation {
   const weather = arena?.weather?.weatherType ?? WeatherType.NONE;
   const terrain = arena?.terrain?.terrainType ?? TerrainType.NONE;
 
-  // Compute action mask
-  const actionMask = computeActionMask(fieldIndex);
+  // Compute action mask based on decision type
+  const actionMask = computeActionMask(decisionType, fieldIndex, validTargets);
+
+  // For CHECK_SWITCH, try to get opponent's next Pokemon if visible
+  let opponentNextPokemon: PokemonObservation | undefined;
+  if (decisionType === DecisionType.CHECK_SWITCH) {
+    // The opponent's next Pokemon may be visible in enemyBench
+    // This is typically the first non-fainted bench Pokemon
+    const nextEnemy = enemyParty.find(p => p && !p.isFainted() && !enemyField.some(f => f?.id === p.id));
+    if (nextEnemy) {
+      opponentNextPokemon = extractPokemonObservation(nextEnemy);
+    }
+  }
 
   return {
     playerActive,
@@ -228,13 +251,42 @@ export function extractBattleObservation(fieldIndex = 0): BattleObservation {
     isDoubleBattle: currentBattle?.double ?? false,
     activeFieldIndex: fieldIndex,
     actionMask,
+    decisionType,
+    switchingFieldIndex,
+    validTargets,
+    opponentNextPokemon,
   };
 }
 
 /**
  * Compute which actions are valid for the current state
+ * @param decisionType - The type of decision being made
+ * @param fieldIndex - The field index of the Pokemon making the decision
+ * @param validTargets - For TARGET decisions, the valid target indices
  */
-export function computeActionMask(fieldIndex = 0): boolean[] {
+export function computeActionMask(
+  decisionType: DecisionType = DecisionType.COMMAND,
+  fieldIndex = 0,
+  validTargets?: number[],
+): boolean[] {
+  switch (decisionType) {
+    case DecisionType.COMMAND:
+      return computeCommandActionMask(fieldIndex);
+    case DecisionType.SWITCH:
+      return computeSwitchActionMask(fieldIndex);
+    case DecisionType.TARGET:
+      return computeTargetActionMask(validTargets ?? []);
+    case DecisionType.CHECK_SWITCH:
+      return computeCheckSwitchActionMask();
+    default:
+      return new Array(ACTION_SPACE_SIZE).fill(false);
+  }
+}
+
+/**
+ * Compute action mask for COMMAND decision (moves, voluntary switch, tera)
+ */
+function computeCommandActionMask(fieldIndex: number): boolean[] {
   const mask = new Array(ACTION_SPACE_SIZE).fill(false);
 
   const playerField = globalScene.getPlayerField();
@@ -283,6 +335,80 @@ export function computeActionMask(fieldIndex = 0): boolean[] {
       }
     }
   }
+
+  return mask;
+}
+
+/**
+ * Compute action mask for SWITCH decision (forced switch after faint)
+ */
+function computeSwitchActionMask(_switchingFieldIndex: number): boolean[] {
+  const mask = new Array(ACTION_SPACE_SIZE).fill(false);
+
+  const playerField = globalScene.getPlayerField();
+  const playerParty = globalScene.getPlayerParty();
+
+  // Get IDs of Pokemon currently on the field (not including the one being switched out)
+  const fieldPokemonIds = new Set<number>();
+  for (const p of playerField) {
+    if (p?.isActive()) {
+      fieldPokemonIds.add(p.id);
+    }
+  }
+
+  // Enable SWITCH_SLOT actions for valid party members
+  for (let slotIndex = 0; slotIndex < playerParty.length && slotIndex < 6; slotIndex++) {
+    const pokemon = playerParty[slotIndex];
+    if (pokemon && !pokemon.isFainted() && !fieldPokemonIds.has(pokemon.id)) {
+      mask[ActionType.SWITCH_SLOT_0 + slotIndex] = true;
+    }
+  }
+
+  return mask;
+}
+
+/**
+ * Compute action mask for TARGET decision (target selection in doubles)
+ */
+function computeTargetActionMask(validTargets: number[]): boolean[] {
+  const mask = new Array(ACTION_SPACE_SIZE).fill(false);
+
+  // Enable TARGET actions for valid targets
+  // validTargets contains BattlerIndex values: PLAYER=0, PLAYER_2=1, ENEMY=2, ENEMY_2=3
+  for (const target of validTargets) {
+    if (target >= 0 && target <= 3) {
+      mask[ActionType.TARGET_PLAYER + target] = true;
+    }
+  }
+
+  return mask;
+}
+
+/**
+ * Compute action mask for CHECK_SWITCH decision (optional switch after KO)
+ */
+function computeCheckSwitchActionMask(): boolean[] {
+  const mask = new Array(ACTION_SPACE_SIZE).fill(false);
+
+  const playerField = globalScene.getPlayerField();
+  const playerParty = globalScene.getPlayerParty();
+
+  // Can always decline
+  mask[ActionType.CHECK_SWITCH_NO] = true;
+
+  // Can only accept if there are valid switch targets
+  const fieldPokemonIds = new Set<number>();
+  for (const p of playerField) {
+    if (p?.isActive()) {
+      fieldPokemonIds.add(p.id);
+    }
+  }
+
+  const hasValidSwitchTarget = playerParty.some(
+    pokemon => pokemon && !pokemon.isFainted() && !fieldPokemonIds.has(pokemon.id),
+  );
+
+  mask[ActionType.CHECK_SWITCH_YES] = hasValidSwitchTarget;
 
   return mask;
 }

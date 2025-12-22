@@ -121,20 +121,35 @@ export function injectHeadlessMocks(game: Phaser.Game, scene: BattleScene, confi
   };
 
   // Mock tweens (instant completion for fast training)
+  // Use setImmediate to schedule callbacks so they don't block synchronously
   (scene as any).tweens = {
     add: (data: any) => {
-      data.onComplete?.();
+      // Schedule callback to run on next tick to allow phase state to settle
+      if (data.onComplete) {
+        setImmediate(() => data.onComplete());
+      }
+      return { isPlaying: () => false };
     },
     getTweensOf: () => [],
     killTweensOf: () => [],
     chain: (data: any) => {
-      data?.tweens?.forEach((tween: any) => tween.onComplete?.());
-      data.onComplete?.();
+      setImmediate(() => {
+        data?.tweens?.forEach((tween: any) => {
+          if (tween.onComplete) {
+            tween.onComplete();
+          }
+        });
+        if (data.onComplete) {
+          data.onComplete();
+        }
+      });
+      return { isPlaying: () => false };
     },
     addCounter: (data: any) => {
       if (data.onComplete) {
-        data.onComplete();
+        setImmediate(() => data.onComplete());
       }
+      return { isPlaying: () => false };
     },
   };
 
@@ -217,8 +232,24 @@ export function injectHeadlessMocks(game: Phaser.Game, scene: BattleScene, confi
   // Setup make object
   scene.make = new MockGameObjectCreator(mockTextureManager) as any;
 
-  // Setup clock
-  scene.time = new MockClock(scene) as any;
+  // Setup clock with immediate execution for delayedCall
+  const mockClock = new MockClock(scene) as any;
+
+  // Override delayedCall to execute callback immediately via setImmediate
+  // This bypasses the Phaser game loop timing which doesn't work well in headless mode
+  const _originalDelayedCall = mockClock.delayedCall.bind(mockClock);
+  mockClock.delayedCall = (_delay: number, callback: () => void, args?: any[], callbackScope?: any) => {
+    // Execute immediately on next tick instead of waiting for delay
+    setImmediate(() => {
+      if (callback) {
+        callback.apply(callbackScope, args || []);
+      }
+    });
+    // Return a fake timer event
+    return { remove: () => {} };
+  };
+
+  scene.time = mockClock;
 
   // Setup remove function
   (scene as any).remove = () => {};

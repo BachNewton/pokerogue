@@ -58,7 +58,6 @@ export class TrainingProfiler {
   enable(): void {
     this.enabled = true;
     this.startTime = nodePerformance.now();
-    console.log("[Profiler] Profiling enabled");
   }
 
   /**

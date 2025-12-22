@@ -7,6 +7,20 @@ import type { MoveCategory } from "#enums/move-category";
 import type { WeatherType } from "#enums/weather-type";
 
 /**
+ * Types of decisions the RL agent can make
+ */
+export enum DecisionType {
+  /** CommandPhase: choose move or switch during battle */
+  COMMAND = "command",
+  /** CheckSwitchPhase: optional switch after KO (yes/no) */
+  CHECK_SWITCH = "check_switch",
+  /** SwitchPhase: forced switch, select Pokemon */
+  SWITCH = "switch",
+  /** SelectTargetPhase: choose target in doubles */
+  TARGET = "target",
+}
+
+/**
  * Observation for a single Pokemon
  */
 export interface PokemonObservation {
@@ -84,12 +98,29 @@ export interface BattleObservation {
   activeFieldIndex: number;
   /** Valid actions mask (true = valid) */
   actionMask: boolean[];
+
+  // === Decision Context ===
+  /** The type of decision required */
+  decisionType: DecisionType;
+  /** For SwitchPhase: which field index is switching out */
+  switchingFieldIndex?: number;
+  /** For SelectTargetPhase: valid target indices (BattlerIndex values) */
+  validTargets?: number[];
+  /** For CheckSwitchPhase: opponent's next Pokemon if visible */
+  opponentNextPokemon?: PokemonObservation;
 }
 
 /**
  * Action types for the RL agent
+ *
+ * Actions are grouped by decision type:
+ * - COMMAND (0-12): Move selection, voluntary switch, tera moves
+ * - SWITCH (13-18): Forced switch to party slot
+ * - TARGET (19-22): Target selection in doubles
+ * - CHECK_SWITCH (23-24): Optional switch yes/no
  */
 export enum ActionType {
+  // === COMMAND Phase Actions (0-12) ===
   /** Use move at index 0 */
   MOVE_0 = 0,
   /** Use move at index 1 */
@@ -98,15 +129,15 @@ export enum ActionType {
   MOVE_2 = 2,
   /** Use move at index 3 */
   MOVE_3 = 3,
-  /** Switch to party Pokemon at index 1 */
+  /** Switch to party Pokemon at index 1 (voluntary) */
   SWITCH_1 = 4,
-  /** Switch to party Pokemon at index 2 */
+  /** Switch to party Pokemon at index 2 (voluntary) */
   SWITCH_2 = 5,
-  /** Switch to party Pokemon at index 3 */
+  /** Switch to party Pokemon at index 3 (voluntary) */
   SWITCH_3 = 6,
-  /** Switch to party Pokemon at index 4 */
+  /** Switch to party Pokemon at index 4 (voluntary) */
   SWITCH_4 = 7,
-  /** Switch to party Pokemon at index 5 */
+  /** Switch to party Pokemon at index 5 (voluntary) */
   SWITCH_5 = 8,
   /** Terastallize and use move at index 0 */
   TERA_MOVE_0 = 9,
@@ -116,10 +147,48 @@ export enum ActionType {
   TERA_MOVE_2 = 11,
   /** Terastallize and use move at index 3 */
   TERA_MOVE_3 = 12,
+
+  // === SWITCH Phase Actions (13-18) ===
+  /** Select party slot 0 for forced switch */
+  SWITCH_SLOT_0 = 13,
+  /** Select party slot 1 for forced switch */
+  SWITCH_SLOT_1 = 14,
+  /** Select party slot 2 for forced switch */
+  SWITCH_SLOT_2 = 15,
+  /** Select party slot 3 for forced switch */
+  SWITCH_SLOT_3 = 16,
+  /** Select party slot 4 for forced switch */
+  SWITCH_SLOT_4 = 17,
+  /** Select party slot 5 for forced switch */
+  SWITCH_SLOT_5 = 18,
+
+  // === TARGET Phase Actions (19-22) ===
+  /** Target player slot 0 (ally in doubles, or self for certain moves) */
+  TARGET_PLAYER = 19,
+  /** Target player slot 1 (ally in doubles) */
+  TARGET_PLAYER_2 = 20,
+  /** Target enemy slot 0 */
+  TARGET_ENEMY = 21,
+  /** Target enemy slot 1 (in doubles) */
+  TARGET_ENEMY_2 = 22,
+
+  // === CHECK_SWITCH Phase Actions (23-24) ===
+  /** Decline optional switch after KO */
+  CHECK_SWITCH_NO = 23,
+  /** Accept optional switch after KO (triggers SwitchPhase next) */
+  CHECK_SWITCH_YES = 24,
 }
 
 /** Total number of actions in the action space */
-export const ACTION_SPACE_SIZE = 13;
+export const ACTION_SPACE_SIZE = 25;
+
+/** Action ranges for each decision type */
+export const ACTION_RANGES: Record<DecisionType, { start: number; end: number }> = {
+  [DecisionType.COMMAND]: { start: 0, end: 12 },
+  [DecisionType.SWITCH]: { start: 13, end: 18 },
+  [DecisionType.TARGET]: { start: 19, end: 22 },
+  [DecisionType.CHECK_SWITCH]: { start: 23, end: 24 },
+};
 
 /**
  * Result of taking a step in the environment

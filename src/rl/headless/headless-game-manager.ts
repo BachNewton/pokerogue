@@ -158,10 +158,16 @@ export class HeadlessGameManager {
    * Run the game to the title screen
    */
   async runToTitle(): Promise<void> {
-    // Go to login phase and skip past it
-    await this.phaseInterceptor.to("LoginPhase", false);
-    this.phaseInterceptor.shiftPhase(true);
-    await this.phaseInterceptor.to("TitlePhase");
+    // Check if we're already at TitlePhase (e.g., after reset)
+    const currentPhase = this.scene.phaseManager.getCurrentPhase();
+    if (currentPhase?.phaseName === "TitlePhase") {
+      // Already at title, just configure settings
+    } else {
+      // Go to login phase and skip past it
+      await this.phaseInterceptor.to("LoginPhase", false);
+      this.phaseInterceptor.shiftPhase(true);
+      await this.phaseInterceptor.to("TitlePhase");
+    }
 
     // Configure for fast training
     this.scene.gameSpeed = this.config.gameSpeed!;
@@ -181,6 +187,12 @@ export class HeadlessGameManager {
    * Start a new battle with the given starters
    */
   async startBattle(starters: StarterConfig): Promise<void> {
+    // If we're past the title (in a battle), reset first
+    const currentPhase = this.scene.phaseManager.getCurrentPhase();
+    if (currentPhase && currentPhase.phaseName !== "TitlePhase" && currentPhase.phaseName !== "LoginPhase") {
+      await this.reset();
+    }
+
     await this.runToTitle();
 
     // Setup the battle
@@ -278,6 +290,18 @@ export class HeadlessGameManager {
    * Reset the game for a new episode
    */
   async reset(): Promise<void> {
+    // Clear the phase interceptor's queues
+    if (this.phaseInterceptor) {
+      const interceptor = this.phaseInterceptor as any;
+      if (interceptor.onHold) {
+        interceptor.onHold.length = 0;
+      }
+      if (interceptor.prompts) {
+        interceptor.prompts.length = 0;
+      }
+      interceptor.inProgress = undefined;
+    }
+
     // Reset the scene
     this.scene.reset(false, true);
 

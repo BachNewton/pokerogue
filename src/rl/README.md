@@ -61,6 +61,7 @@ Options:
   --tensorboard-dir <path>         TensorBoard log directory (default: "./tensorboard_logs")
   --no-tensorboard                 Disable TensorBoard logging
   --profile                        Enable performance profiling
+  --debug                          Enable verbose RL debug logging
 ```
 
 ## Architecture
@@ -110,17 +111,43 @@ src/rl/
 The agent observes:
 - 6 player Pokemon × 55 features each (stats, moves, status, tera, etc.)
 - 6 enemy Pokemon × 55 features each
-- Battle state (weather, terrain, turn, wave)
-- Total: 668 features
+- Battle state (weather, terrain, turn, wave, decision type)
+- Total: 672 features
+
+## Decision Types
+
+The agent handles 4 distinct decision points during battle:
+
+| Type | Phase | Description |
+|------|-------|-------------|
+| `COMMAND` | CommandPhase | Choose move, switch, or tera+move |
+| `CHECK_SWITCH` | CheckSwitchPhase | Optional switch after KO (yes/no) |
+| `SWITCH` | SwitchPhase | Forced switch - select replacement Pokemon |
+| `TARGET` | SelectTargetPhase | Choose target in doubles battles |
 
 ## Action Space
 
-13 discrete actions:
+25 discrete actions across 4 decision types:
+
+**COMMAND (0-12)** - Regular battle commands:
 - `MOVE_0` to `MOVE_3`: Use move at index
 - `SWITCH_1` to `SWITCH_5`: Switch to party Pokemon
 - `TERA_MOVE_0` to `TERA_MOVE_3`: Terastallize + use move
 
-Invalid actions are masked with action masking.
+**SWITCH (13-18)** - Forced switch slot selection:
+- `SWITCH_SLOT_0` to `SWITCH_SLOT_5`: Select party slot
+
+**TARGET (19-22)** - Target selection in doubles:
+- `TARGET_PLAYER`: Target ally slot 0
+- `TARGET_PLAYER_2`: Target ally slot 1
+- `TARGET_ENEMY`: Target enemy slot 0
+- `TARGET_ENEMY_2`: Target enemy slot 1
+
+**CHECK_SWITCH (23-24)** - Optional switch prompt:
+- `CHECK_SWITCH_NO`: Decline optional switch
+- `CHECK_SWITCH_YES`: Accept switch (triggers SWITCH decision)
+
+Invalid actions are masked per decision type.
 
 ## Visual Playback (Browser)
 
@@ -271,8 +298,8 @@ Log Interval: 100
 Rolling Window: 100
 ================================================================================
 
-Step:      100 | Ep:      5 | Stage: basic_single_battle  | Reward:     1.23 | WinRate:  20.0% | Waves:   1.0 | SPS:   150
-Step:      200 | Ep:     10 | Stage: basic_single_battle  | Reward:     2.45 | WinRate:  40.0% | Waves:   1.0 | SPS:   148
+Step:       25 | Ep:      5 | Stage: basic_single_battle  | Reward:     5.94 | WinRate: 100.0% | Waves:   2.2 | SPS:     3
+Step:       50 | Ep:     10 | Stage: basic_single_battle  | Reward:     5.65 | WinRate: 100.0% | Waves:   2.4 | SPS:     3
 ...
 💾 Checkpoint saved: ./checkpoints/checkpoint-10000 (step 10000)
 ...
@@ -307,8 +334,6 @@ Customize via `RewardShaping` presets:
 - TensorFlow.js integration with native addon (CPU backend working, GPU optional)
 - BattleStyle.SET to skip switch prompts during training
 - Full training loop execution (actions execute correctly)
-- SelectTargetPhase auto-handling for move target selection
-- Additional phase handlers (SwitchPhase, VictoryPhase, BattleEndPhase, etc.)
 - Episode retry logic and graceful error handling
 - Cross-platform file path handling for checkpoints (Windows compatible)
 - PhaseInterceptor integration for proper phase execution in headless mode
@@ -318,19 +343,21 @@ Customize via `RewardShaping` presets:
 - TensorBoard logging (basic scalars: loss, reward, win rate, curriculum stage)
 - Browser AI playback overlay (load models, start/stop AI, speed control via F10 key)
 - Performance profiling instrumentation (`--profile` CLI flag)
+- **Multi-decision architecture**: 4 decision types (COMMAND, CHECK_SWITCH, SWITCH, TARGET)
+- **25-action space**: Expanded from 13 to support all decision types
+- **Phase timeout fix**: Fast polling replaces 10s timeouts (100-300x speedup)
+- CheckSwitchPhase, SwitchPhase, SelectTargetPhase as RL decision points
+- **Episode completion**: Proper victory detection and episode reset
+- **Debug logging system**: `--debug` flag for verbose phase/action logging
 
 ### Known Issues
 - `i18next.use()` warning during initialization (non-blocking)
-- Many "variant icon does not exist" warnings (cosmetic, doesn't affect training)
-- **Phase timeouts significantly slow training** - SelectTargetPhase, SwitchPhase, SwitchSummonPhase timeout after 10s each, causing steps to take 10-30s instead of <1s
+- "Texture not found" warnings (cosmetic, doesn't affect training)
+- Some phase timeouts (500ms) on SwitchSummonPhase/NextEncounterPhase limit SPS to ~3
 
 ### Next Steps
-
-#### High Priority (Major Training Speed Impact)
-1. **Fix phase timeout issues** - SelectTargetPhase, SwitchPhase, and SwitchSummonPhase need proper auto-handling to avoid 10s timeouts. This is the #1 bottleneck for training speed.
-
-#### Medium Priority
-2. Test curriculum stage progression with extended training runs
-3. Browser visual playback integration testing with trained models
-4. Hyperparameter tuning for better learning
-5. Performance optimization based on profiling results
+1. Test curriculum stage progression with extended training runs
+2. Browser visual playback integration testing with trained models
+3. Hyperparameter tuning for better learning
+4. Performance optimization based on profiling results
+5. Double battle support testing

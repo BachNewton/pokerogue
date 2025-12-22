@@ -12,6 +12,7 @@
 
 import type { SpeciesId } from "#enums/species-id";
 import { Command } from "commander";
+import { setRLDebug } from "../debug";
 import { createTrainer, type TrainerConfig } from "./trainer";
 
 const program = new Command();
@@ -35,6 +36,7 @@ program
   .option("--no-curriculum", "Disable curriculum learning")
   .option("--starters <ids>", "Starter Pokemon species IDs (comma-separated)", "6,9,3")
   .option("-v, --verbose", "Enable verbose output")
+  .option("--debug", "Enable verbose RL debug logging")
   .option("--tensorboard-dir <path>", "TensorBoard log directory", "./tensorboard_logs")
   .option("--no-tensorboard", "Disable TensorBoard logging")
   .option("--profile", "Enable performance profiling");
@@ -43,30 +45,28 @@ export async function main() {
   program.parse();
   const opts = program.opts();
 
+  // Enable debug logging if requested
+  if (opts.debug) {
+    setRLDebug(true);
+  }
+
   // Setup TensorFlow backend
   if (opts.gpu) {
-    console.log("Loading TensorFlow.js with GPU support...");
     try {
       await import("@tensorflow/tfjs-node-gpu");
-      console.log("GPU backend loaded successfully.");
-    } catch (error) {
-      console.warn("Failed to load GPU backend, falling back to CPU:");
-      console.warn((error as Error).message);
+    } catch {
       try {
         await import("@tensorflow/tfjs-node");
       } catch {
-        console.warn("Native backend unavailable, using pure JS (slower)");
+        console.warn("Native TF unavailable, using pure JS");
         await import("@tensorflow/tfjs");
       }
     }
   } else {
-    console.log("Loading TensorFlow.js CPU backend...");
     try {
       await import("@tensorflow/tfjs-node");
-      console.log("Native CPU backend loaded.");
-    } catch (error) {
-      console.warn("Native TensorFlow backend unavailable:", (error as Error).message);
-      console.warn("Falling back to pure JavaScript TensorFlow.js (slower but works)");
+    } catch {
+      console.warn("Native TF unavailable, using pure JS");
       await import("@tensorflow/tfjs");
     }
   }
@@ -122,14 +122,11 @@ export async function main() {
     }
     isShuttingDown = true;
 
-    console.log("\n\nShutting down gracefully...");
+    console.log("\nShutting down...");
     try {
-      // Save final checkpoint
-      console.log("Saving checkpoint...");
       await (trainer as any).saveCheckpoint();
-      console.log("Checkpoint saved.");
     } catch (error) {
-      console.error("Failed to save checkpoint:", error);
+      console.error("Checkpoint save failed:", error);
     }
 
     trainer.dispose();
@@ -148,7 +145,6 @@ export async function main() {
   }
 
   trainer.dispose();
-  console.log("Training complete!");
 }
 
 // Run if executed directly (not imported)

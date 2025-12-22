@@ -57,3 +57,5 @@ coverage
 # RL training outputs
 /tensorboard-logs
 /checkpoints
+tensorboard_logs/
+checkpoints/

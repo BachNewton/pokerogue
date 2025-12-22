@@ -25,5 +25,3 @@ const env = {
 // Also set on import.meta for this module (others will get it from the loader)
 // @ts-expect-error
 (import.meta as any).env = env;
-
-console.log("[Training] Environment polyfill loaded");

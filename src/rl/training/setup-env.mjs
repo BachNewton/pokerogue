@@ -11,6 +11,50 @@
 
 import { createRequire } from "node:module";
 import util from "node:util";
+
+// Suppress verbose game logging during training
+// Only allow training-related output to reduce noise
+const originalLog = console.log;
+// Check for --debug flag in CLI args
+const isDebugMode = process.argv.includes("--debug");
+if (isDebugMode) {
+  process.env.RL_DEBUG = "1";
+}
+
+const trainingKeywords = [
+  "Step:",
+  "Ep:",
+  "Checkpoint",
+  "TensorBoard",
+  "Graduated",
+  "====",
+  "Starting",
+  "Complete",
+  "Win Rate",
+  "Avg Reward",
+  "Total Time",
+  "Total Steps",
+  "Log Interval",
+  "Rolling Window",
+  "Final",
+  "Stage:",
+  "PLoss:",
+  "VLoss:",
+  "SPS:",
+  "Waves:",
+  "[BC]",
+  "[RL_DEBUG]", // Allow debug logging from battle-controller
+];
+
+console.log = (...args) => {
+  const msg = String(args[0] ?? "");
+  // Only show lines containing training keywords
+  if (trainingKeywords.some(kw => msg.includes(kw))) {
+    return originalLog.apply(console, args);
+  }
+  // Suppress everything else
+};
+
 import { JSDOM } from "jsdom";
 
 // Polyfill util.isNullOrUndefined for Node.js 24+ (removed in newer versions)
@@ -557,4 +601,4 @@ Object.defineProperty(document, "fonts", {
   },
 });
 
-console.log("[Training] Environment setup complete (JSDOM + Vite env + i18next + rex-plugins)");
+// Environment setup complete

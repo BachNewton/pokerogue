@@ -124,8 +124,6 @@ export class RLTrainer {
    * Initialize the training environment
    */
   async initialize(): Promise<void> {
-    console.log("Initializing headless game environment...");
-
     this.gameManager = await createHeadlessGameManager({
       seed: this.config.seed,
       gameSpeed: 20,
@@ -140,8 +138,6 @@ export class RLTrainer {
     };
 
     this.controller = this.gameManager.createBattleController(envConfig);
-
-    console.log("Environment initialized successfully!");
   }
 
   /**
@@ -221,12 +217,11 @@ export class RLTrainer {
       this.episodeSteps = 0;
     } catch (error) {
       if (retryCount < maxRetries) {
-        console.warn(`Episode reset failed (attempt ${retryCount + 1}/${maxRetries}):`, error);
-        // Reset game state and try again
+        // Reset game state and try again (silent unless verbose)
         await this.gameManager!.reset();
         await this.resetEpisode(retryCount + 1);
       } else {
-        throw new Error(`Failed to reset episode after ${maxRetries} attempts: ${error}`);
+        throw new Error(`Reset failed x${maxRetries}: ${error}`);
       }
     }
   }
@@ -305,29 +300,26 @@ export class RLTrainer {
         this.lastObs = result.observation;
         this.lastActionMask = result.observation.actionMask;
       }
-    } catch (error) {
-      // Log error but don't crash - terminate episode gracefully
-      console.error("[Trainer] Error during step:", error);
-
-      // Record failed episode with penalty
+    } catch (_error) {
+      // Terminate episode gracefully on error
       const episodeResult: EpisodeResult = {
         won: false,
         wavesReached: this.lastObs?.waveIndex ?? 1,
-        totalReward: this.episodeReward - 10, // Penalty for error
+        totalReward: this.episodeReward - 10,
         turns: this.episodeSteps,
       };
 
       this.curriculum.recordEpisode(episodeResult);
       this.episode++;
-      this.step++; // Count step to avoid infinite loop
+      this.step++;
 
       // Try to reset for next episode
       try {
         await this.gameManager!.reset();
         await this.resetEpisode();
       } catch (resetError) {
-        console.error("[Trainer] Failed to reset after error:", resetError);
-        throw resetError; // Re-throw if we can't recover
+        console.error("[Trainer] Fatal reset error:", resetError);
+        throw resetError;
       }
     }
   }
@@ -437,8 +429,6 @@ export class RLTrainer {
       this.step = checkpoint.step;
       this.episode = checkpoint.episode;
       this.curriculum.restore(checkpoint.curriculumState);
-
-      console.log(`Loaded checkpoint from step ${this.step}, episode ${this.episode}`);
     }
   }
 
